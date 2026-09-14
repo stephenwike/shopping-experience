@@ -5,13 +5,22 @@
   "main": "module.json",
   "license": "MIT",
   "author": "DrentalBot",
-  "dependencies": {},
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "yaml": "^2.8.1"
+  },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
     "@foundryvtt/foundryvtt-cli": "^1.0.0-rc.4",
-    "prettier": "^2.8.4"
+    "prettier": "^2.8.4",
+    "vite": "^7.1.3"
   },
   "scripts": {
     "build": "node ./tools/pullYMLtoLDB.mjs",
-    "extract": "node ./tools/pushLDBtoYML.mjs"
+    "extract": "node ./tools/pushLDBtoYML.mjs",
+    "web:build": "vite build",
+    "web:dev": "vite",
+    "web:preview": "vite preview"
   }
 }
