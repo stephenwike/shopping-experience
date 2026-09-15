@@ -3,18 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { parse } from 'yaml';
 import './styles.css';
 
-const STOCK_STORAGE_KEY = 'shopping-experience:stock-overrides';
-
-function loadStockOverrides() {
-  try {
-    return JSON.parse(localStorage.getItem(STOCK_STORAGE_KEY)) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-// Ask the browser not to auto-evict our storage under disk pressure, so stock survives long-term.
-navigator.storage?.persist?.();
+const STOCK_API = '/api/stock';
+const DM_MODE_KEY = 'shopping-experience:dm-mode';
+const POLL_INTERVAL_MS = 15000;
 
 const shopFiles = import.meta.glob('../packs/**/*.yml', {
   eager: true,
@@ -95,16 +86,51 @@ function StockStepper({ item, quantity, onAdjust, onSet }) {
   );
 }
 
+function StockDisplay({ quantity }) {
+  return <span className="stock-display">{quantity} in stock</span>;
+}
+
 function App() {
   const [activeShopId, setActiveShopId] = useState(shops[0]?.id ?? '');
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [stockOverrides, setStockOverrides] = useState(loadStockOverrides);
+  const [stockOverrides, setStockOverrides] = useState({});
+  const [isDM, setIsDM] = useState(() => localStorage.getItem(DM_MODE_KEY) === 'true');
 
   useEffect(() => {
-    localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(stockOverrides));
-  }, [stockOverrides]);
+    let cancelled = false;
+
+    async function fetchStock() {
+      try {
+        const response = await fetch(STOCK_API);
+        const data = await response.json();
+        if (!cancelled) setStockOverrides(data.overrides ?? {});
+      } catch (error) {
+        console.error('Failed to load shared stock', error);
+      }
+    }
+
+    fetchStock();
+    const interval = setInterval(fetchStock, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  async function saveStock(nextOverrides) {
+    setStockOverrides(nextOverrides);
+    try {
+      await fetch(STOCK_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextOverrides),
+      });
+    } catch (error) {
+      console.error('Failed to save shared stock', error);
+    }
+  }
 
   function getQuantity(item) {
     return stockOverrides[item.id] ?? item.quantity;
@@ -112,7 +138,7 @@ function App() {
 
   function setQuantity(item, quantity) {
     const nextQuantity = Math.max(0, Number.isFinite(quantity) ? quantity : 0);
-    setStockOverrides((current) => ({ ...current, [item.id]: nextQuantity }));
+    saveStock({ ...stockOverrides, [item.id]: nextQuantity });
   }
 
   function adjustQuantity(item, delta) {
@@ -121,31 +147,15 @@ function App() {
 
   function resetStock() {
     if (confirm('Reset all shop stock back to the original quantities?')) {
-      setStockOverrides({});
+      saveStock({});
     }
   }
 
-  function exportStock() {
-    const blob = new Blob([JSON.stringify(stockOverrides, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `shop-stock-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importStock(event) {
-    const file = event.target.files[0];
-    event.target.value = '';
-    if (!file) return;
-
-    file.text().then((text) => {
-      try {
-        setStockOverrides(JSON.parse(text));
-      } catch {
-        alert('That file could not be read as a stock backup.');
-      }
+  function toggleDM() {
+    setIsDM((current) => {
+      const next = !current;
+      localStorage.setItem(DM_MODE_KEY, String(next));
+      return next;
     });
   }
 
@@ -174,12 +184,8 @@ function App() {
         </div>
         <p className="shop-count">{shops.length} stocked shops</p>
         <div className="stock-actions">
-          <button onClick={exportStock}>Back up stock</button>
-          <label className="import-button">
-            Restore stock
-            <input type="file" accept="application/json" onChange={importStock} hidden />
-          </label>
-          <button className="reset-stock-button" onClick={resetStock}>Reset stock</button>
+          <button className={isDM ? 'selected' : ''} onClick={toggleDM}>{isDM ? 'DM mode: on' : 'DM mode: off'}</button>
+          {isDM && <button className="reset-stock-button" onClick={resetStock}>Reset stock</button>}
         </div>
       </header>
 
@@ -242,7 +248,9 @@ function App() {
                     <span className="item-card-top"><b>{item.name}</b><em>{item.price}</em></span>
                     <span className="item-card-bottom">Level {item.level} · {item.rarity}</span>
                   </button>
-                  <StockStepper item={item} quantity={getQuantity(item)} onAdjust={adjustQuantity} onSet={setQuantity} />
+                  {isDM
+                    ? <StockStepper item={item} quantity={getQuantity(item)} onAdjust={adjustQuantity} onSet={setQuantity} />
+                    : <StockDisplay quantity={getQuantity(item)} />}
                 </div>
               ))}
             </div>
@@ -258,7 +266,9 @@ function App() {
             <p className="eyebrow">{selectedItem.type} · level {selectedItem.level}</p>
             <h2>{selectedItem.name}</h2>
             <p className="price">{selectedItem.price}</p>
-            <StockStepper item={selectedItem} quantity={getQuantity(selectedItem)} onAdjust={adjustQuantity} onSet={setQuantity} />
+            {isDM
+              ? <StockStepper item={selectedItem} quantity={getQuantity(selectedItem)} onAdjust={adjustQuantity} onSet={setQuantity} />
+              : <StockDisplay quantity={getQuantity(selectedItem)} />}
             {selectedItem.traits.length > 0 && <p className="traits">{selectedItem.traits.join(' · ')}</p>}
             <p className="description">{selectedItem.description || 'No description is recorded for this item.'}</p>
           </article>

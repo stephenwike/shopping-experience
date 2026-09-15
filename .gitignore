@@ -2,3 +2,5 @@
 /packs/
 /dist/
 .vercel
+.local-stock.json
+.env*
