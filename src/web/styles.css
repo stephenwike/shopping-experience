@@ -12,6 +12,9 @@ button { cursor: pointer; }
 h1, h2 { margin: 0; font-family: Fraunces, serif; letter-spacing: 0; }
 h1 { font-size: 32px; } h2 { font-size: 28px; }
 .shop-count { margin-left: auto; color: #b7d5c3; font-size: 12px; }
+.stock-actions { display: flex; gap: 8px; }
+.stock-actions button, .stock-actions .import-button { padding: 8px 12px; color: #f9f3e8; background: transparent; border: 1px solid #4f746d; border-radius: 3px; font-size: 11px; }
+.stock-actions button:hover, .stock-actions .import-button:hover { background: #29635a; }
 .workspace { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: calc(100vh - 132px); }
 .shop-list { padding: 30px 18px; background: #e7ddcd; border-right: 1px solid #cabba5; }
 .shop-button { width: 100%; padding: 12px 10px; text-align: left; color: #25433e; background: transparent; border: 0; border-bottom: 1px solid #d2c5b3; display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }

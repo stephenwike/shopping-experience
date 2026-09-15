@@ -1,7 +1,20 @@
-import { StrictMode, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { parse } from 'yaml';
 import './styles.css';
+
+const STOCK_STORAGE_KEY = 'shopping-experience:stock-overrides';
+
+function loadStockOverrides() {
+  try {
+    return JSON.parse(localStorage.getItem(STOCK_STORAGE_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+// Ask the browser not to auto-evict our storage under disk pressure, so stock survives long-term.
+navigator.storage?.persist?.();
 
 const shopFiles = import.meta.glob('../packs/**/*.yml', {
   eager: true,
@@ -57,11 +70,84 @@ function ItemArtwork({ image, type }) {
   );
 }
 
+function StockStepper({ item, quantity, onAdjust, onSet }) {
+  return (
+    <div className="stock-stepper" onMouseDown={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        aria-label={`Decrease stock for ${item.name}`}
+        onClick={() => onAdjust(item, -1)}
+        disabled={quantity <= 0}
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min="0"
+        value={quantity}
+        aria-label={`Stock for ${item.name}`}
+        onChange={(event) => onSet(item, parseInt(event.target.value, 10))}
+      />
+      <button type="button" aria-label={`Increase stock for ${item.name}`} onClick={() => onAdjust(item, 1)}>
+        +
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [activeShopId, setActiveShopId] = useState(shops[0]?.id ?? '');
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [stockOverrides, setStockOverrides] = useState(loadStockOverrides);
+
+  useEffect(() => {
+    localStorage.setItem(STOCK_STORAGE_KEY, JSON.stringify(stockOverrides));
+  }, [stockOverrides]);
+
+  function getQuantity(item) {
+    return stockOverrides[item.id] ?? item.quantity;
+  }
+
+  function setQuantity(item, quantity) {
+    const nextQuantity = Math.max(0, Number.isFinite(quantity) ? quantity : 0);
+    setStockOverrides((current) => ({ ...current, [item.id]: nextQuantity }));
+  }
+
+  function adjustQuantity(item, delta) {
+    setQuantity(item, getQuantity(item) + delta);
+  }
+
+  function resetStock() {
+    if (confirm('Reset all shop stock back to the original quantities?')) {
+      setStockOverrides({});
+    }
+  }
+
+  function exportStock() {
+    const blob = new Blob([JSON.stringify(stockOverrides, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `shop-stock-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importStock(event) {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+
+    file.text().then((text) => {
+      try {
+        setStockOverrides(JSON.parse(text));
+      } catch {
+        alert('That file could not be read as a stock backup.');
+      }
+    });
+  }
 
   const activeShop = shops.find((shop) => shop.id === activeShopId) ?? shops[0];
   const itemTypes = [
@@ -87,6 +173,14 @@ function App() {
           <h1>Shop Ledger</h1>
         </div>
         <p className="shop-count">{shops.length} stocked shops</p>
+        <div className="stock-actions">
+          <button onClick={exportStock}>Back up stock</button>
+          <label className="import-button">
+            Restore stock
+            <input type="file" accept="application/json" onChange={importStock} hidden />
+          </label>
+          <button className="reset-stock-button" onClick={resetStock}>Reset stock</button>
+        </div>
       </header>
 
       <section className="workspace" aria-label="Shop inventory browser">
@@ -142,11 +236,14 @@ function App() {
           {visibleItems.length ? (
             <div className="item-grid">
               {visibleItems.map((item) => (
-                <button className="item-card" key={item.id} onClick={() => setSelectedItem(item)}>
-                  <ItemArtwork image={item.image} type={item.type} />
-                  <span className="item-card-top"><b>{item.name}</b><em>{item.price}</em></span>
-                  <span className="item-card-bottom">Level {item.level} · {item.rarity} · {item.quantity} in stock</span>
-                </button>
+                <div className="item-card" key={item.id}>
+                  <button className="item-card-open" onClick={() => setSelectedItem(item)}>
+                    <ItemArtwork image={item.image} type={item.type} />
+                    <span className="item-card-top"><b>{item.name}</b><em>{item.price}</em></span>
+                    <span className="item-card-bottom">Level {item.level} · {item.rarity}</span>
+                  </button>
+                  <StockStepper item={item} quantity={getQuantity(item)} onAdjust={adjustQuantity} onSet={setQuantity} />
+                </div>
               ))}
             </div>
           ) : <p className="empty-state">No inventory matches that search.</p>}
@@ -160,7 +257,8 @@ function App() {
             <ItemArtwork image={selectedItem.image} type={selectedItem.type} />
             <p className="eyebrow">{selectedItem.type} · level {selectedItem.level}</p>
             <h2>{selectedItem.name}</h2>
-            <p className="price">{selectedItem.price} · {selectedItem.quantity} in stock</p>
+            <p className="price">{selectedItem.price}</p>
+            <StockStepper item={selectedItem} quantity={getQuantity(selectedItem)} onAdjust={adjustQuantity} onSet={setQuantity} />
             {selectedItem.traits.length > 0 && <p className="traits">{selectedItem.traits.join(' · ')}</p>}
             <p className="description">{selectedItem.description || 'No description is recorded for this item.'}</p>
           </article>
