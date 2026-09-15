@@ -3,9 +3,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const STOCK_PATHNAME = 'stock.json';
-// Vercel Blob needs a linked store token; without one (local dev) fall back to a local file.
+// Vercel's deployed functions have a read-only filesystem, so only use the local file
+// when actually running outside Vercel (e.g. `vite` alone, not `vercel dev`/deployed).
 const LOCAL_STOCK_FILE = path.join(process.cwd(), '.local-stock.json');
-const useLocalFallback = !process.env.BLOB_READ_WRITE_TOKEN;
+const useLocalFallback = !process.env.VERCEL;
 
 async function readStock() {
   if (useLocalFallback) {
@@ -28,6 +29,10 @@ async function writeStock(overrides) {
   if (useLocalFallback) {
     await writeFile(LOCAL_STOCK_FILE, JSON.stringify(overrides));
     return;
+  }
+
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw new Error('No Blob store is connected to this project yet. Add one in the Vercel dashboard Storage tab.');
   }
 
   // allowOverwrite keeps the pathname stable so readers don't need to track blob URLs.
@@ -61,8 +66,14 @@ export default async function handler(req, res) {
       return;
     }
 
-    // allowOverwrite keeps the pathname stable so readers don't need to track blob URLs.
-    await writeStock(overrides);
+    try {
+      await writeStock(overrides);
+    } catch (error) {
+      console.error('Failed to save stock', error);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
     res.status(200).json({ overrides });
     return;
   }

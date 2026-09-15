@@ -120,15 +120,22 @@ function App() {
   }, []);
 
   async function saveStock(nextOverrides) {
+    const previousOverrides = stockOverrides;
     setStockOverrides(nextOverrides);
     try {
-      await fetch(STOCK_API, {
+      const response = await fetch(STOCK_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextOverrides),
       });
+      if (!response.ok) {
+        const { error } = await response.json().catch(() => ({}));
+        throw new Error(error || `Save failed with status ${response.status}`);
+      }
     } catch (error) {
       console.error('Failed to save shared stock', error);
+      setStockOverrides(previousOverrides);
+      alert(`Stock change was not saved: ${error.message}`);
     }
   }
 
